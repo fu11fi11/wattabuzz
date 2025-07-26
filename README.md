@@ -34,19 +34,30 @@ YouTube에서 'WSWF', 'Kyoka', 'Kaea' 키워드 관련 핫한 영상과 댓글�
 
 ```
 wattabuzz/
-├── dags/                     # Airflow DAG 정의
-│   └── hotspotter_dag.py    # HotSpotter 수집 파이프라인
-├── core/                    # 핵심 비즈니스 로직
-│   ├── collectors/          # 데이터 수집기
-│   ├── database/           # 데이터베이스 관리
-│   └── services/           # 백그라운드 서비스 (legacy)
-├── config/                 # 설정 관리
-│   ├── keywords.py         # 타겟 키워드 정의
-│   └── settings.py         # 환경 설정
-├── app.py                  # Streamlit 웹 대시보드
-├── requirements.txt        # Python 종속성
-├── requirements-airflow.txt # Airflow 전용 종속성
-└── setup_airflow.md       # Airflow 설정 가이드
+├── 📂 dags/                    # Airflow DAG 정의
+│   ├── hotspotter_dag.py      # WattaBuzz 데이터 수집 파이프라인
+│   └── test_dag.py            # 테스트용 DAG
+├── 📂 core/                   # 핵심 비즈니스 로직
+│   ├── analysis/              # 데이터 분석 엔진
+│   │   └── sentiment_analyzer.py
+│   ├── collectors/            # 데이터 수집기
+│   │   └── youtube_collector.py
+│   ├── database/              # 데이터베이스 관리
+│   │   └── database_manager.py
+│   └── services/              # 자동 수집 서비스
+│       └── auto_collector.py
+├── 📂 config/                 # 설정 관리
+│   ├── keywords.py            # 타겟 키워드 정의
+│   └── settings.py            # 환경 설정
+├── 📂 airflow/                # Airflow 설정
+│   └── airflow.cfg            # Airflow 구성 파일
+├── 📱 app.py                  # Streamlit 웹 대시보드
+├── 📋 requirements.txt        # Python 종속성
+├── 📖 setup_airflow.md        # Airflow 설정 가이드
+├── 🧪 test_youtube_api.py     # YouTube API 테스트
+├── 📄 wattabuzz.md            # 프로젝트 상세 문서
+├── 📋 pyproject.toml          # Python 프로젝트 설정
+└── 📝 .editorconfig           # 에디터 설정
 ```
 
 ## 🚀 빠른 시작
@@ -89,8 +100,7 @@ airflow users create \
     --firstname Admin \
     --lastname User \
     --role Admin \
-    --email admin@example.com \
-    --password admin123
+    --email admin@wattabuzz.com
 ```
 
 ### 4. 시스템 실행
@@ -117,7 +127,7 @@ streamlit run app.py
 
 ### 5. 접속 및 활성화
 
-1. **Airflow 웹 UI**: http://localhost:8080 (admin/admin123)
+1. **Airflow 웹 UI**: http://localhost:8080 (관리자 계정으로 로그인)
 2. **DAG 활성화**: `hotspotter_collection` 토글 ON
 3. **Streamlit 대시보드**: http://localhost:8501
 
@@ -238,9 +248,7 @@ COLLECTION_SETTINGS = {
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📄 라이선스
 
-이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 `LICENSE` 파일을 참조하세요.
 
 ## 📞 문의 및 지원
 
@@ -250,4 +258,4 @@ COLLECTION_SETTINGS = {
 
 ---
 
-**🔥 HotSpotter - YouTube 트렌드를 앞서가는 인텔리전트 모니터링 시스템** 🔥 
+**🌊 WattaBuzz - YouTube 트렌드를 앞서가는 인텔리전트 모니터링 시스템** 🌊 
