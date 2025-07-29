@@ -20,25 +20,27 @@ def load_settings() -> Dict[str, Any]:
         'database_path': os.getenv('DATABASE_PATH', 'data/wattabuzz.db'),
         
         # 모델 설정
-        'sentiment_model': os.getenv('SENTIMENT_MODEL', 'matthewburke/korean-sentiment-analysis-dataset'),
-        'model_cache_dir': os.getenv('MODEL_CACHE_DIR', 'cache/models'),
+        # 'sentiment_model': os.getenv('SENTIMENT_MODEL', 'matthewburke/korean-sentiment-analysis-dataset'),
+        # 'model_cache_dir': os.getenv('MODEL_CACHE_DIR', 'cache/models'),
         
         # 수집 설정
         'default_max_results': int(os.getenv('DEFAULT_MAX_RESULTS', '100')),
-        'collection_interval': int(os.getenv('COLLECTION_INTERVAL', '300')),  # 5분
+        'collection_interval': int(os.getenv('COLLECTION_INTERVAL', '300')), #초
         
         # 앱 설정
         'app_title': os.getenv('APP_TITLE', '🌊 WattaBuzz'),
         'debug': os.getenv('DEBUG', 'True').lower() == 'true',
         
         # 기본 키워드
-        'default_keywords': [
-            '삼성 갤럭시 S24',
-            '아이폰 15',
-            '테슬라 모델 Y',
-            'BTS',
-            '엔비디아'
-        ]
+        # 'default_keywords': [
+        #     # '삼성 갤럭시 S24',
+        #     # '아이폰 15',
+        #     'BTS',
+        #     # '엔비디아'
+        #     '소녀시대',
+        #     '블랙핑크',
+        #     '세븐틴',
+        # ]
     }
     
     return settings

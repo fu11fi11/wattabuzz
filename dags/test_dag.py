@@ -4,7 +4,7 @@
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.dummy import DummyOperator
+from airflow.operators.empty import EmptyOperator
 
 # 기본 설정
 default_args = {
@@ -24,7 +24,7 @@ dag = DAG(
 )
 
 # 간단한 태스크
-test_task = DummyOperator(
+test_task = EmptyOperator(
     task_id='test_task',
     dag=dag,
 )

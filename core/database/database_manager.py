@@ -1,21 +1,16 @@
 import json
-import pandas as pd
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+import logging
 import os
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
-import sqlite3
-import logging
 
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
-    """데이터베이스 관리자
-    
-    나중에 FastAPI로 마이그레이션할 때도 그대로 사용 가능한 독립적인 모듈
-    PostgreSQL을 사용하여 확장성 있는 데이터 저장소 구축
-    """
     
     def __init__(self, database_url: str = None):
         """데이터베이스 매니저 초기화
@@ -23,57 +18,35 @@ class DatabaseManager:
         Args:
             database_url: 데이터베이스 연결 URL
         """
-        from dotenv import load_dotenv
-        load_dotenv()
         
         if database_url is None:
-            # 환경변수에서 읽기, 없으면 SQLite 사용
-            database_url = os.getenv('DATABASE_URL', 'sqlite:///data/wattabuzz.db')
+            # 환경변수에서 읽기, PostgreSQL 필수
+            database_url = os.getenv('DATABASE_URL')
+            if not database_url:
+                raise ValueError("DATABASE_URL 환경변수가 필요합니다. PostgreSQL 연결 문자열을 설정해주세요.")
         
         self.database_url = database_url
-        self.is_postgresql = database_url.startswith('postgresql')
         
         try:
-            if self.is_postgresql:
-                self.engine = create_engine(database_url, pool_pre_ping=True)
-                print("🐘 PostgreSQL 연결 시도 중...")
-            else:
-                # SQLite용 디렉토리 생성
-                if database_url.startswith('sqlite:///'):
-                    db_path = database_url.replace('sqlite:///', '')
-                    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-                self.engine = create_engine(database_url)
-                print("🗃️ SQLite 데이터베이스 사용")
+            self.engine = create_engine(database_url, pool_pre_ping=True)
+            print("🐘 PostgreSQL 연결 시도 중...")
             
             # 데이터베이스 초기화
             self._init_database()
             
         except Exception as e:
             print(f"❌ 데이터베이스 연결 실패: {e}")
-            # SQLite로 fallback
-            fallback_url = 'sqlite:///data/wattabuzz.db'
-            print(f"🔄 SQLite로 fallback: {fallback_url}")
-            
-            os.makedirs('data', exist_ok=True)
-            self.database_url = fallback_url
-            self.is_postgresql = False
-            self.engine = create_engine(fallback_url)
-            self._init_database()
+            raise Exception(f"PostgreSQL 연결에 실패했습니다. DATABASE_URL을 확인해주세요: {e}")
     
     def _init_database(self):
         """데이터베이스 초기화 및 테이블 생성"""
         try:
             with self.engine.connect() as conn:
                 with conn.begin():  # 트랜잭션 시작
-                    if self.is_postgresql:
-                        # PostgreSQL 스키마
-                        self._create_postgresql_tables(conn)
-                    else:
-                        # SQLite 스키마
-                        self._create_sqlite_tables(conn)
+                    self._create_postgresql_tables(conn)
                     # 트랜잭션은 with 블록 종료 시 자동 커밋됨
                 
-                print(f"✅ {'PostgreSQL' if self.is_postgresql else 'SQLite'} 데이터베이스 초기화 완료")
+                print("✅ PostgreSQL 데이터베이스 초기화 완료")
                 
         except SQLAlchemyError as e:
             print(f"❌ 데이터베이스 초기화 실패: {e}")
@@ -97,31 +70,31 @@ class DatabaseManager:
             )
         '''))
         
-        # 감성분석 결과 테이블
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS sentiment_analysis (
-                id SERIAL PRIMARY KEY,
-                post_id INTEGER REFERENCES social_media_posts(id),
-                sentiment VARCHAR(20) NOT NULL,
-                confidence REAL NOT NULL,
-                scores JSONB,
-                analyzed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-            )
-        '''))
+        # 감성분석 결과 테이블 (현재 사용하지 않음)
+        # conn.execute(text('''
+        #     CREATE TABLE IF NOT EXISTS sentiment_analysis (
+        #         id SERIAL PRIMARY KEY,
+        #         post_id INTEGER REFERENCES social_media_posts(id),
+        #         sentiment VARCHAR(20) NOT NULL,
+        #         confidence REAL NOT NULL,
+        #         scores JSONB,
+        #         analyzed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        #     )
+        # '''))
         
-        # 키워드 분석 요약 테이블
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS keyword_analysis (
-                id SERIAL PRIMARY KEY,
-                keyword VARCHAR(200) NOT NULL,
-                total_posts INTEGER DEFAULT 0,
-                positive_count INTEGER DEFAULT 0,
-                negative_count INTEGER DEFAULT 0,
-                neutral_count INTEGER DEFAULT 0,
-                avg_confidence REAL DEFAULT 0,
-                analysis_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-            )
-        '''))
+        # 키워드 분석 요약 테이블 (현재 사용하지 않음)
+        # conn.execute(text('''
+        #     CREATE TABLE IF NOT EXISTS keyword_analysis (
+        #         id SERIAL PRIMARY KEY,
+        #         keyword VARCHAR(200) NOT NULL,
+        #         total_posts INTEGER DEFAULT 0,
+        #         positive_count INTEGER DEFAULT 0,
+        #         negative_count INTEGER DEFAULT 0,
+        #         neutral_count INTEGER DEFAULT 0,
+        #         avg_confidence REAL DEFAULT 0,
+        #         analysis_date TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        #     )
+        # '''))
         
         # 핫한 콘텐츠 영상 테이블
         conn.execute(text('''
@@ -162,186 +135,19 @@ class DatabaseManager:
             )
         '''))
         
-        # 인덱스 생성
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_posts_keyword ON social_media_posts(keyword)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_posts_platform ON social_media_posts(platform)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_sentiment_post ON sentiment_analysis(post_id)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_hot_videos_keyword ON hot_videos(keyword)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_hot_comments_keyword ON hot_comments(keyword)'))
+        # 인덱스 생성 
+        # conn.execute(text('CREATE INDEX IF NOT EXISTS idx_posts_keyword ON social_media_posts(keyword)'))
+        # conn.execute(text('CREATE INDEX IF NOT EXISTS idx_posts_platform ON social_media_posts(platform)'))
+        # conn.execute(text('CREATE INDEX IF NOT EXISTS idx_sentiment_post ON sentiment_analysis(post_id)'))
+        # conn.execute(text('CREATE INDEX IF NOT EXISTS idx_hot_videos_keyword ON hot_videos(keyword)'))
+        # conn.execute(text('CREATE INDEX IF NOT EXISTS idx_hot_comments_keyword ON hot_comments(keyword)'))
     
-    def _create_sqlite_tables(self, conn):
-        """SQLite 테이블 생성"""
-        # 원본 소셜미디어 게시글 테이블
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS social_media_posts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                platform TEXT NOT NULL,
-                keyword TEXT NOT NULL,
-                content TEXT NOT NULL,
-                author TEXT,
-                timestamp TEXT,
-                likes INTEGER DEFAULT 0,
-                engagement_metrics TEXT,
-                metadata TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        '''))
-        
-        # 감성분석 결과 테이블
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS sentiment_analysis (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                post_id INTEGER,
-                sentiment TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                scores TEXT,
-                analyzed_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (post_id) REFERENCES social_media_posts (id)
-            )
-        '''))
-        
-        # 키워드 분석 요약 테이블
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS keyword_analysis (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyword TEXT NOT NULL,
-                total_posts INTEGER DEFAULT 0,
-                positive_count INTEGER DEFAULT 0,
-                negative_count INTEGER DEFAULT 0,
-                neutral_count INTEGER DEFAULT 0,
-                avg_confidence REAL DEFAULT 0,
-                analysis_date TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        '''))
-        
-        # 핫한 콘텐츠 영상 테이블
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS hot_videos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyword TEXT NOT NULL,
-                video_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                channel TEXT,
-                published_at TEXT,
-                view_count INTEGER DEFAULT 0,
-                like_count INTEGER DEFAULT 0,
-                comment_count INTEGER DEFAULT 0,
-                hot_score REAL DEFAULT 0,
-                thumbnail TEXT,
-                url TEXT,
-                description TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        '''))
-        
-        # 핫한 콘텐츠 댓글 테이블
-        conn.execute(text('''
-            CREATE TABLE IF NOT EXISTS hot_comments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyword TEXT NOT NULL,
-                video_id TEXT NOT NULL,
-                comment_id TEXT NOT NULL,
-                author TEXT,
-                content TEXT NOT NULL,
-                like_count INTEGER DEFAULT 0,
-                reply_count INTEGER DEFAULT 0,
-                published_at TEXT,
-                hot_score REAL DEFAULT 0,
-                video_title TEXT,
-                video_url TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        '''))
-        
-        # 인덱스 생성
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_posts_keyword ON social_media_posts(keyword)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_posts_platform ON social_media_posts(platform)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_sentiment_post ON sentiment_analysis(post_id)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_hot_videos_keyword ON hot_videos(keyword)'))
-        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_hot_comments_keyword ON hot_comments(keyword)'))
+
     
-    def save_analysis_results(self, keyword: str, analyzed_data: List[Dict[str, Any]]) -> bool:
-        """분석 결과를 데이터베이스에 저장
-        
-        Args:
-            keyword: 분석한 키워드
-            analyzed_data: 분석된 데이터 리스트
-            
-        Returns:
-            저장 성공 여부
-        """
-        try:
-            with self.engine.connect() as conn:
-                with conn.begin():  # 트랜잭션 시작
-                    cursor = conn.cursor()
-                    
-                    post_ids = []
-                    sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
-                    total_confidence = 0
-                    
-                    for item in analyzed_data:
-                        # 1. 원본 게시글 저장
-                        cursor.execute('''
-                            INSERT INTO social_media_posts 
-                            (platform, keyword, content, author, timestamp, likes, engagement_metrics, metadata)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (
-                            item.get('platform', 'unknown'),
-                            keyword,
-                            item.get('content', ''),
-                            item.get('author', 'anonymous'),
-                            item.get('timestamp', datetime.now().isoformat()),
-                            item.get('likes', 0),
-                            json.dumps(item.get('engagement_metrics', {})),
-                            json.dumps(item.get('metadata', {}))
-                        ))
-                        
-                        post_id = cursor.lastrowid
-                        post_ids.append(post_id)
-                        
-                        # 2. 감성분석 결과 저장
-                        sentiment = item.get('sentiment', 'neutral')
-                        confidence = item.get('confidence', 0.5)
-                        scores = item.get('scores', {})
-                        
-                        cursor.execute('''
-                            INSERT INTO sentiment_analysis 
-                            (post_id, sentiment, confidence, scores)
-                            VALUES (?, ?, ?, ?)
-                        ''', (
-                            post_id,
-                            sentiment,
-                            confidence,
-                            json.dumps(scores)
-                        ))
-                        
-                        # 통계 업데이트
-                        sentiment_counts[sentiment] += 1
-                        total_confidence += confidence
-                    
-                    # 3. 키워드 분석 요약 저장
-                    avg_confidence = total_confidence / len(analyzed_data) if analyzed_data else 0
-                    
-                    cursor.execute('''
-                        INSERT INTO keyword_analysis 
-                        (keyword, total_posts, positive_count, negative_count, neutral_count, avg_confidence)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (
-                        keyword,
-                        len(analyzed_data),
-                        sentiment_counts['positive'],
-                        sentiment_counts['negative'],
-                        sentiment_counts['neutral'],
-                        avg_confidence
-                    ))
-                    # 트랜잭션은 with 블록 종료 시 자동 커밋됨
-                
-                print(f"✅ 데이터베이스에 {len(analyzed_data)}개 레코드 저장 완료")
-                return True
-                
-        except Exception as e:
-            print(f"❌ 데이터베이스 저장 실패: {e}")
-            return False
+    # def save_analysis_results(self, keyword: str, analyzed_data: List[Dict[str, Any]]) -> bool:
+    #     """분석 결과를 데이터베이스에 저장 (현재 사용하지 않음)"""
+    #     # 감성분석 관련 메서드 - 현재 사용하지 않음
+    #     pass
     
     def save_hot_content_results(self, keyword: str, hot_content: Dict[str, Any]) -> bool:
         """핫한 콘텐츠 결과를 데이터베이스에 저장"""
@@ -570,30 +376,10 @@ class DatabaseManager:
             logger.error(f"Error getting keywords stats: {e}")
             return []
     
-    def get_keyword_history(self, keyword: str, limit: int = 10) -> pd.DataFrame:
-        """키워드 분석 히스토리 조회
-        
-        Args:
-            keyword: 조회할 키워드
-            limit: 최대 조회 개수
-            
-        Returns:
-            분석 히스토리 데이터프레임
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                query = '''
-                    SELECT * FROM keyword_analysis 
-                    WHERE keyword = ? 
-                    ORDER BY analysis_date DESC 
-                    LIMIT ?
-                '''
-                df = pd.read_sql_query(query, conn, params=(keyword, limit))
-                return df
-                
-        except Exception as e:
-            print(f"❌ 히스토리 조회 실패: {e}")
-            return pd.DataFrame()
+    # def get_keyword_history(self, keyword: str, limit: int = 10) -> pd.DataFrame:
+    #     """키워드 분석 히스토리 조회 (현재 사용하지 않음)"""
+    #     # 감성분석 관련 메서드 - 현재 사용하지 않음
+    #     return pd.DataFrame()
     
     def get_recent_posts(self, keyword: str = None, limit: int = 50) -> pd.DataFrame:
         """최근 게시글 조회
@@ -606,24 +392,22 @@ class DatabaseManager:
             게시글 데이터프레임
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self.engine.connect() as conn:
                 if keyword:
                     query = '''
-                        SELECT p.*, s.sentiment, s.confidence 
+                        SELECT p.*
                         FROM social_media_posts p
-                        LEFT JOIN sentiment_analysis s ON p.id = s.post_id
-                        WHERE p.keyword = ?
+                        WHERE p.keyword = %s
                         ORDER BY p.created_at DESC 
-                        LIMIT ?
+                        LIMIT %s
                     '''
                     params = (keyword, limit)
                 else:
                     query = '''
-                        SELECT p.*, s.sentiment, s.confidence 
+                        SELECT p.*
                         FROM social_media_posts p
-                        LEFT JOIN sentiment_analysis s ON p.id = s.post_id
                         ORDER BY p.created_at DESC 
-                        LIMIT ?
+                        LIMIT %s
                     '''
                     params = (limit,)
                 
@@ -634,67 +418,15 @@ class DatabaseManager:
             print(f"❌ 게시글 조회 실패: {e}")
             return pd.DataFrame()
     
-    def get_sentiment_trends(self, keyword: str, days: int = 7) -> pd.DataFrame:
-        """감성 트렌드 조회
-        
-        Args:
-            keyword: 키워드
-            days: 조회할 일수
-            
-        Returns:
-            트렌드 데이터프레임
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                query = '''
-                    SELECT 
-                        DATE(p.created_at) as date,
-                        s.sentiment,
-                        COUNT(*) as count,
-                        AVG(s.confidence) as avg_confidence
-                    FROM social_media_posts p
-                    JOIN sentiment_analysis s ON p.id = s.post_id
-                    WHERE p.keyword = ? AND DATE(p.created_at) >= DATE('now', '-{} days')
-                    GROUP BY DATE(p.created_at), s.sentiment
-                    ORDER BY date DESC
-                '''.format(days)
-                
-                df = pd.read_sql_query(query, conn, params=(keyword,))
-                return df
-                
-        except Exception as e:
-            print(f"❌ 트렌드 조회 실패: {e}")
-            return pd.DataFrame()
+    # def get_sentiment_trends(self, keyword: str, days: int = 7) -> pd.DataFrame:
+    #     """감성 트렌드 조회 (현재 사용하지 않음)"""
+    #     # 감성분석 관련 메서드 - 현재 사용하지 않음
+    #     return pd.DataFrame()
     
-    def get_top_keywords(self, limit: int = 10) -> pd.DataFrame:
-        """인기 키워드 조회
-        
-        Args:
-            limit: 최대 조회 개수
-            
-        Returns:
-            인기 키워드 데이터프레임
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                query = '''
-                    SELECT 
-                        keyword,
-                        SUM(total_posts) as total_posts,
-                        AVG(avg_confidence) as avg_confidence,
-                        MAX(analysis_date) as last_analysis
-                    FROM keyword_analysis
-                    GROUP BY keyword
-                    ORDER BY total_posts DESC
-                    LIMIT ?
-                '''
-                
-                df = pd.read_sql_query(query, conn, params=(limit,))
-                return df
-                
-        except Exception as e:
-            print(f"❌ 인기 키워드 조회 실패: {e}")
-            return pd.DataFrame()
+    # def get_top_keywords(self, limit: int = 10) -> pd.DataFrame:
+    #     """인기 키워드 조회 (현재 사용하지 않음)"""
+    #     # 감성분석 관련 메서드 - 현재 사용하지 않음
+    #     return pd.DataFrame()
     
     def clean_old_data(self, days: int = 30) -> bool:
         """오래된 데이터 정리
@@ -709,23 +441,10 @@ class DatabaseManager:
             with self.engine.connect() as conn:
                 with conn.begin():  # 트랜잭션 시작
                     # 오래된 데이터 삭제 (SQLAlchemy text 사용)
-                    conn.execute(text('''
-                        DELETE FROM sentiment_analysis 
-                        WHERE post_id IN (
-                            SELECT id FROM social_media_posts 
-                            WHERE DATE(created_at) < DATE('now', '-{} days')
-                        )
-                    '''.format(days)))
-                    
-                    conn.execute(text('''
+                    conn.execute(text(f'''
                         DELETE FROM social_media_posts 
-                        WHERE DATE(created_at) < DATE('now', '-{} days')
-                    '''.format(days)))
-                    
-                    conn.execute(text('''
-                        DELETE FROM keyword_analysis 
-                        WHERE DATE(analysis_date) < DATE('now', '-{} days')
-                    '''.format(days)))
+                        WHERE created_at < NOW() - INTERVAL '{days} days'
+                    '''))
                     # 트랜잭션은 with 블록 종료 시 자동 커밋됨
                 
                 print(f"✅ {days}일 이전 데이터 정리 완료")
@@ -742,55 +461,29 @@ class DatabaseManager:
             데이터베이스 통계 정보
         """
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
+            with self.engine.connect() as conn:
                 # 테이블별 레코드 수
-                cursor.execute('SELECT COUNT(*) FROM social_media_posts')
-                posts_count = cursor.fetchone()[0]
+                result = conn.execute(text('SELECT COUNT(*) FROM social_media_posts'))
+                posts_count = result.scalar()
                 
-                cursor.execute('SELECT COUNT(*) FROM sentiment_analysis')
-                analysis_count = cursor.fetchone()[0]
-                
-                cursor.execute('SELECT COUNT(DISTINCT keyword) FROM keyword_analysis')
-                keywords_count = cursor.fetchone()[0]
+                # 감성분석 관련 통계는 현재 사용하지 않음
+                analysis_count = 0
+                keywords_count = 0
                 
                 # 최근 분석일
-                cursor.execute('SELECT MAX(created_at) FROM social_media_posts')
-                last_post = cursor.fetchone()[0]
+                result = conn.execute(text('SELECT MAX(created_at) FROM social_media_posts'))
+                last_post = result.scalar()
                 
                 return {
                     'total_posts': posts_count,
                     'total_analysis': analysis_count,
                     'unique_keywords': keywords_count,
                     'last_post_date': last_post,
-                    'database_size': os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+                    'database_size': 0  # PostgreSQL에서는 파일 크기 대신 다른 메트릭 사용
                 }
                 
         except Exception as e:
             print(f"❌ 통계 조회 실패: {e}")
             return {}
 
-# 사용 예시 (테스트용)
-if __name__ == "__main__":
-    db = DatabaseManager()
-    
-    # 테스트 데이터
-    test_data = [
-        {
-            'platform': 'YouTube',
-            'content': '삼성 갤럭시 정말 좋네요!',
-            'author': 'TestUser1',
-            'sentiment': 'positive',
-            'confidence': 0.9,
-            'scores': {'positive': 0.9, 'negative': 0.05, 'neutral': 0.05}
-        }
-    ]
-    
-    # 저장 테스트
-    success = db.save_analysis_results('삼성 갤럭시', test_data)
-    print(f"저장 성공: {success}")
-    
-    # 조회 테스트
-    stats = db.get_database_stats()
-    print(f"데이터베이스 통계: {stats}") 
+ 

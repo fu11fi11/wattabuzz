@@ -1,9 +1,9 @@
 """YouTube content collector for trending analysis and hot content detection."""
-# flake8: noqa
+
 
 import os
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any
+from typing import Dict, Any
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -15,10 +15,10 @@ class YouTubeCollector:
             api_key: YouTube Data API v3 키. None이면 환경변수에서 읽음
         """
         self.api_key = api_key or os.getenv('YOUTUBE_API_KEY')
+        
         if not self.api_key:
-            # API 키가 없으면 더미 데이터 사용
             self.youtube = None
-            print("⚠️ YouTube API 키가 없습니다. 더미 데이터를 사용합니다.")
+            print("⚠️ YouTube API 키를 사용할 수 없습니다. 데이터 수집 실패")
         else:
             try:
                 self.youtube = build('youtube', 'v3', developerKey=self.api_key)
@@ -61,9 +61,9 @@ class YouTubeCollector:
                 q=keyword,
                 part='id,snippet',
                 maxResults=max_videos,
-                order='relevance',
+                order='viewCount',
                 type='video',
-                publishedAfter='2024-01-01T00:00:00Z'
+                publishedAfter=(datetime.utcnow() - timedelta(days=14)).strftime('%Y-%m-%dT%H:%M:%SZ')
             ).execute()
             
             video_ids = [item['id']['videoId'] for item in search_response['items']]
@@ -89,10 +89,12 @@ class YouTubeCollector:
                     recent_comments_data = self._analyze_recent_comments(video_id)
                     
                     # 핫한 점수 계산 (최근 댓글 활동 중심)
-                    hot_score = self._calculate_video_hot_score_v2(
+                    hot_score = self._calculate_video_hot_score(
                         view_count, like_count, comment_count, 
                         snippet['publishedAt'], recent_comments_data
                     )
+                    if hot_score < 45:
+                        continue
                     
                     video_data = {
                         'video_id': video_id,
@@ -139,13 +141,13 @@ class YouTubeCollector:
             
             result = {
                 'keyword': keyword,
-                'hot_videos': hot_videos[:10],  # 상위 10개 영상
-                'hot_comments': hot_comments[:20],  # 상위 20개 댓글
+                'hot_videos': hot_videos,
+                'hot_comments': hot_comments,
                 'total_videos_analyzed': len(hot_videos),
                 'total_comments_analyzed': len(hot_comments)
             }
             
-            print(f"🔥 핫한 영상 {len(hot_videos[:10])}개, 핫한 댓글 {len(hot_comments[:20])}개 발견!")
+            print(f"🔥 핫한 영상 {len(result['hot_videos'])}개, 핫한 댓글 {len(result['hot_comments'])}개 발견!")
             return result
             
         except HttpError as e:
@@ -184,8 +186,8 @@ class YouTubeCollector:
             comments_response = self.youtube.commentThreads().list(  # pylint: disable=no-member
                 part='snippet',
                 videoId=video_id,
-                maxResults=50,  # 더 많이 수집해서 최근 활동 분석
-                order='time'  # 최신순
+                maxResults=100,  # 더 많이 수집해서 최근 활동 분석
+                order='relevance'
             ).execute()
             
             now = datetime.now(timezone.utc)
@@ -210,15 +212,15 @@ class YouTubeCollector:
                         if comment_time > very_recent_threshold:
                             very_recent_comments_count += 1
                     
-                    # 핫한 댓글 판별 (새로운 기준)
+                    # 조회수, 답글수 
                     like_count = comment.get('likeCount', 0)
                     reply_count = comment_item['snippet'].get('totalReplyCount', 0)
                     
-                    comment_hot_score = self._calculate_comment_hot_score_v2(
+                    comment_hot_score = self._calculate_comment_hot_score(
                         like_count, reply_count, comment['publishedAt'], comment_time
                     )
                     
-                    if comment_hot_score > 10:  # 새로운 임계값
+                    if comment_hot_score >= 45:  # 새로운 임계값
                         hot_comment_data = {
                             'comment_id': comment_item['id'],
                             'content': comment['textDisplay'],
@@ -243,9 +245,9 @@ class YouTubeCollector:
             print(f"최근 댓글 분석 오류 (비디오 {video_id}): {e}")
             return {'recent_comments_count': 0, 'hot_comments': []}
     
-    def _calculate_video_hot_score_v2(self, view_count: int, like_count: int, comment_count: int, 
-                                      published_at: str, recent_comments_data: Dict) -> float:
-        """영상의 핫한 정도 점수 계산 V2 - 최근 댓글 활동 중심"""
+    def _calculate_video_hot_score(self, view_count: int, like_count: int, comment_count: int, 
+                                  published_at: str, recent_comments_data: Dict) -> float:
+        """영상의 핫한 정도 점수 계산 - 최근 댓글 활동 중심"""
         import math
         
         # 1. 최근 댓글 활동 점수 (가장 중요) - 60%
@@ -253,39 +255,51 @@ class YouTubeCollector:
         very_recent_comments = recent_comments_data.get('very_recent_comments_count', 0)
         
         # 최근 7일 댓글 점수
-        recent_activity_score = min(math.log10(max(recent_comments, 1)) * 20, 80)
+        # recent_comments가 2^15(=32,768)일 때 최고점(36점)이 되도록 스케일
+        recent_activity_score = min(math.log2(max(recent_comments, 1)) / 15 * 36, 36)
         
-        # 최근 1일 댓글 보너스
-        very_recent_bonus = min(very_recent_comments * 2, 20)
+        # 최근 1일 댓글 보너스 
+        # very_recent_comments가 2^10(=1024)일 때 최고점(24점)이 되도록 스케일
+        very_recent_bonus = min(math.log2(max(very_recent_comments, 1)) / 10 * 24, 24)
         
         recent_total_score = recent_activity_score + very_recent_bonus
+        # recent_total_score = min(recent_total_score, 60)
         
-        # 2. 전체적인 인기도 점수 - 25%
-        view_score = min(math.log10(max(view_count, 1)) * 5, 25)
+        # 2. 조회수 - 25%
+        # view_count가 2^23(=8,388,608)일 때 최고점(25점)이 되도록 스케일
+        view_score = min(math.log2(max(view_count, 1)) / 23 * 25, 25)
         
-        # 3. 좋아요 비율 점수 - 10%  
-        like_ratio = like_count / max(view_count, 1) * 1000
-        like_score = min(like_ratio * 10, 10)
+        # 3. 좋아요 비율 점수 - 10%
+        # like : view = 1 : 100 일때 최고점(10점)
+        like_ratio = like_count / max(view_count, 1)
+        if like_ratio >= 0.01:
+            like_score = 10
+        elif like_ratio < 0.001:
+            like_score = 0
+        else:
+            like_score = like_ratio * 1000  # 0.00n => n점
         
         # 4. 영상 신선도 점수 - 5%
-        try:
-            pub_date = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
-            now = datetime.now(timezone.utc)
-            days_old = (now - pub_date).days
-            freshness_score = max(0, 5 - days_old * 0.2)  # 25일 후 0점
-        except:
+        pub_date = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        days_old = (now - pub_date).days
+
+        if days_old <= 3:
+            freshness_score = 5
+        elif days_old <= 7:
+            freshness_score = 2.5
+        else:
             freshness_score = 0
         
-        # 총 점수 계산 (최근 댓글 활동에 높은 가중치)
-        total_score = (recent_total_score * 0.6 + view_score * 0.25 + 
-                      like_score * 0.1 + freshness_score * 0.05)
+        # 총 점수 계산
+        total_score = recent_total_score + view_score + like_score + freshness_score
         
         return round(total_score, 2)
     
-    def _calculate_comment_hot_score_v2(self, like_count: int, reply_count: int, 
-                                       published_at: str, comment_time: datetime = None) -> float:
-        """댓글의 핫한 정도 점수 계산 V2 - 답글 활동에 높은 가중치"""
-        import math
+    def _calculate_comment_hot_score(self, like_count: int, reply_count: int, 
+                                   published_at: str, comment_time: datetime = None) -> float:
+        """댓글의 핫한 정도 점수 계산 - 답글 활동에 높은 가중치"""
+        import math     # pylint: disable=import-outside-toplevel
         
         # 1. 좋아요 점수 - 30% (가중치 감소)
         like_score = min(math.log10(max(like_count, 1)) * 10, 30)
@@ -330,56 +344,7 @@ class YouTubeCollector:
         total_score = like_score + reply_score + recency_score
         return round(total_score, 2)
     
-    def _calculate_video_hot_score(self, view_count: int, like_count: int, comment_count: int, published_at: str) -> float:
-        """영상의 핫한 정도 점수 계산"""
-        import math
-        
-        # 1. 조회수 점수 (로그 스케일)
-        view_score = math.log10(max(view_count, 1)) * 10
-        
-        # 2. 좋아요 비율 점수
-        like_ratio = like_count / max(view_count, 1) * 1000  # 퍼밀 단위
-        like_score = min(like_ratio * 20, 100)  # 최대 100점
-        
-        # 3. 댓글 활성도 점수
-        comment_ratio = comment_count / max(view_count, 1) * 1000
-        comment_score = min(comment_ratio * 50, 50)  # 최대 50점
-        
-        # 4. 최신성 점수 (최근 영상일수록 높은 점수)
-        try:
-            pub_date = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
-            now = datetime.now(timezone.utc)
-            days_old = (now - pub_date).days
-            freshness_score = max(0, 30 - days_old * 2)  # 15일 후 0점
-        except:
-            freshness_score = 0
-        
-        # 총 점수 계산 (가중 평균)
-        total_score = (view_score * 0.3 + like_score * 0.3 + comment_score * 0.2 + freshness_score * 0.2)
-        return round(total_score, 2)
-    
-    def _calculate_comment_hot_score(self, like_count: int, reply_count: int, published_at: str) -> float:
-        """댓글의 핫한 정도 점수 계산"""
-        import math
-        
-        # 1. 좋아요 점수
-        like_score = min(math.log10(max(like_count, 1)) * 15, 60)  # 최대 60점
-        
-        # 2. 답글 활성도 점수
-        reply_score = min(reply_count * 3, 30)  # 최대 30점
-        
-        # 3. 최신성 점수
-        try:
-            pub_date = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
-            now = datetime.now(timezone.utc)
-            days_old = (now - pub_date).days
-            freshness_score = max(0, 20 - days_old * 1)  # 20일 후 0점
-        except:
-            freshness_score = 0
-        
-        # 총 점수 계산
-        total_score = like_score + reply_score + freshness_score
-        return round(total_score, 2)
+
     
 
     

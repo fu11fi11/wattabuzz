@@ -72,9 +72,10 @@ venv.bak/
 # Airflow
 airflow/logs/
 airflow/airflow.db*
-airflow/airflow-webserver.pid
-airflow/airflow-scheduler.pid
+airflow/airflow-webserver*
+airflow/airflow-scheduler*
 airflow/webserver_config.py
+
 
 # 데이터베이스 파일
 data/
@@ -137,6 +138,11 @@ secrets.txt
 *.backup
 *.bak
 requirements_backup.txt
+
+# Pylint
+.pylintrc
+pylint.log
+.pylint.d/
 
 # 기타
 .coverage
