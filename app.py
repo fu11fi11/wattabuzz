@@ -1,45 +1,42 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta # pylint: disable=unused-import
 
-# Core modules
+import numpy as np
+import streamlit as st
+
+from config.keywords import COLLECTION_SETTINGS, TARGET_KEYWORDS # pylint: disable=unused-import
 from core.database.database_manager import DatabaseManager
-from config.keywords import TARGET_KEYWORDS
 
 # Page config
 st.set_page_config(
-    page_title="🌊 WattaBuzz",
-    page_icon="🌊",
+    page_title="WattaBuzz",
+    page_icon="💻",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 def show_welcome():
     """웰컴 메시지"""
-    st.markdown("""
+    st.markdown(f"""
     ## 🎯 WattaBuzz에 오신 것을 환영합니다!
     
     **Apache Airflow로 자동 관리되는 YouTube 핫 콘텐츠 모니터링 시스템**
     
-    ### 🔥 현재 모니터링 중인 키워드:
+    ### 🔥 현재 모니터링 중인 키워드 ({', '.join(TARGET_KEYWORDS)})
     """)
     
     cols = st.columns(len(TARGET_KEYWORDS))
     for i, keyword in enumerate(TARGET_KEYWORDS):
         with cols[i]:
-            st.metric(f"📊 {keyword}", "모니터링 중", "🚀 Airflow 관리")
+            st.metric(f"{keyword}", "모니터링 중", "Airflow 관리")
     
-    st.markdown("""
-    ### ✨ 주요 기능:
-    - 🚀 **Airflow 자동 관리**: Apache Airflow에서 1시간마다 자동 수집
-    - 🔥 **핫한 콘텐츠 탐지**: 최근 댓글 활동과 인기도 기반 점수 계산
-    - 📊 **실시간 대시보드**: 수집된 데이터를 즉시 시각화
-    - 🔗 **직접 링크**: 핫한 콘텐츠로 바로 이동 가능
-    - 📈 **수집 이력 추적**: Airflow 웹 UI에서 실행 상태 모니터링
+    st.markdown(f"""
+    ### 주요 기능:
+    - **Airflow 자동 관리**: Apache Airflow에서 {COLLECTION_SETTINGS.get('collection_interval_hours')}시간마다 자동 수집
+    - **핫한 콘텐츠 탐지**: 최근 댓글 활동과 인기도 기반 점수 계산
+    - **실시간 대시보드**: 수집된 데이터를 즉시 시각화
+    - **직접 링크**: 핫한 콘텐츠로 바로 이동 가능
+    - **수집 이력 추적**: Airflow 웹 UI에서 실행 상태 모니터링
     
     ---
     
@@ -52,11 +49,11 @@ def show_airflow_status():
         st.markdown("### 🚀 Airflow 파이프라인 상태")
         
         # Airflow 관리 중 안내
-        st.info("""
+        st.info(f"""
         **현재 Apache Airflow에서 자동 관리 중입니다.**
         
-        🔄 **수집 주기**: 1시간마다
-        🎯 **키워드**: WSWF, Kyoka, Kaea
+        🔄 **수집 주기**: {COLLECTION_SETTINGS.get('collection_interval_hours')}시간마다
+        🎯 **키워드**: {', '.join(TARGET_KEYWORDS)}
         📊 **모니터링**: Airflow 웹 UI에서 확인
         """)
         
@@ -197,7 +194,7 @@ def show_hot_score_explanation():
         ### 🎬 영상 핫점수 계산:
         - **최근 댓글 활동** (60%): 최근 7일 내 댓글 수 (핵심 지표!), 최근 1일 내 댓글 수 (보너스)
         - **전체 조회수** (25%): 로그 스케일로 점수 계산
-        - **좋아요 비율** (10%): 조회수 대비 좋아요 비율
+        - **좋아요 비율** (10%): 조회수 대비 좋아요 비율(100:1 -> 10점, 1000:1 -> 0점)
         - **영상 신선도** (5%): 최근 업로드일수록 높은 점수
         
         ### 💬 댓글 핫점수 계산:
@@ -232,10 +229,10 @@ def main():
     # 자동 새로고침 (옵션)
     with st.sidebar:
         st.markdown("---")
-        auto_refresh = st.checkbox("🔄 자동 새로고침 (30초)", value=False)
+        auto_refresh = st.checkbox("🔄 자동 새로고침 (5분)", value=False)
         
         if auto_refresh:
-            time.sleep(30)
+            time.sleep(300)
             st.rerun()
 
 if __name__ == "__main__":

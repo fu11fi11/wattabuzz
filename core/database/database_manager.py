@@ -29,13 +29,13 @@ class DatabaseManager:
         
         try:
             self.engine = create_engine(database_url, pool_pre_ping=True)
-            print("🐘 PostgreSQL 연결 시도 중...")
+            print("PostgreSQL 연결 시도 중...")
             
             # 데이터베이스 초기화
             self._init_database()
             
         except Exception as e:
-            print(f"❌ 데이터베이스 연결 실패: {e}")
+            print(f"데이터베이스 연결 실패: {e}")
             raise Exception(f"PostgreSQL 연결에 실패했습니다. DATABASE_URL을 확인해주세요: {e}")
     
     def _init_database(self):
@@ -46,10 +46,10 @@ class DatabaseManager:
                     self._create_postgresql_tables(conn)
                     # 트랜잭션은 with 블록 종료 시 자동 커밋됨
                 
-                print("✅ PostgreSQL 데이터베이스 초기화 완료")
+                print("PostgreSQL 데이터베이스 초기화 완료")
                 
         except SQLAlchemyError as e:
-            print(f"❌ 데이터베이스 초기화 실패: {e}")
+            print(f"데이터베이스 초기화 실패: {e}")
             raise
     
     def _create_postgresql_tables(self, conn):
@@ -112,7 +112,8 @@ class DatabaseManager:
                 thumbnail VARCHAR(500),
                 url VARCHAR(500),
                 description TEXT,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                UNIQUE(keyword, video_id)
             )
         '''))
         
@@ -131,9 +132,33 @@ class DatabaseManager:
                 hot_score REAL DEFAULT 0,
                 video_title VARCHAR(500),
                 video_url VARCHAR(500),
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                UNIQUE(keyword, comment_id)
             )
         '''))
+        
+        # 기존 테이블에 UNIQUE 제약조건 추가 (중복 방지)
+        try:
+            # hot_videos 테이블에 UNIQUE 제약조건 추가
+            conn.execute(text('''
+                ALTER TABLE hot_videos 
+                ADD CONSTRAINT unique_video_per_keyword 
+                UNIQUE (keyword, video_id)
+            '''))
+        except Exception:
+            # 이미 제약조건이 있거나 오류가 발생한 경우 무시
+            pass
+            
+        try:
+            # hot_comments 테이블에 UNIQUE 제약조건 추가
+            conn.execute(text('''
+                ALTER TABLE hot_comments 
+                ADD CONSTRAINT unique_comment_per_keyword 
+                UNIQUE (keyword, comment_id)
+            '''))
+        except Exception:
+            # 이미 제약조건이 있거나 오류가 발생한 경우 무시
+            pass
         
         # 인덱스 생성 
         # conn.execute(text('CREATE INDEX IF NOT EXISTS idx_posts_keyword ON social_media_posts(keyword)'))
@@ -154,7 +179,7 @@ class DatabaseManager:
         try:
             with self.engine.connect() as conn:
                 with conn.begin():  # 트랜잭션 시작
-                    # 영상 데이터 저장
+                    # 영상 데이터 저장 (중복 시 더 높은 hot_score로 업데이트)
                     for video in hot_content.get('hot_videos', []):
                         video_query = text("""
                             INSERT INTO hot_videos (
@@ -166,6 +191,17 @@ class DatabaseManager:
                                 :view_count, :like_count, :comment_count, :hot_score,
                                 :thumbnail, :url, :description, :created_at
                             )
+                            ON CONFLICT (keyword, video_id) 
+                            DO UPDATE SET 
+                                hot_score = CASE 
+                                    WHEN EXCLUDED.hot_score > hot_videos.hot_score 
+                                    THEN EXCLUDED.hot_score 
+                                    ELSE hot_videos.hot_score 
+                                END,
+                                view_count = EXCLUDED.view_count,
+                                like_count = EXCLUDED.like_count,
+                                comment_count = EXCLUDED.comment_count,
+                                created_at = EXCLUDED.created_at
                         """)
                         
                         conn.execute(video_query, {
@@ -184,7 +220,7 @@ class DatabaseManager:
                             'created_at': datetime.now().isoformat()
                         })
                     
-                    # 댓글 데이터 저장
+                    # 댓글 데이터 저장 (중복 시 더 높은 hot_score로 업데이트)
                     for comment in hot_content.get('hot_comments', []):
                         comment_query = text("""
                             INSERT INTO hot_comments (
@@ -196,6 +232,16 @@ class DatabaseManager:
                                 :like_count, :reply_count, :published_at, :hot_score,
                                 :video_title, :video_url, :created_at
                             )
+                            ON CONFLICT (keyword, comment_id) 
+                            DO UPDATE SET 
+                                hot_score = CASE 
+                                    WHEN EXCLUDED.hot_score > hot_comments.hot_score 
+                                    THEN EXCLUDED.hot_score 
+                                    ELSE hot_comments.hot_score 
+                                END,
+                                like_count = EXCLUDED.like_count,
+                                reply_count = EXCLUDED.reply_count,
+                                created_at = EXCLUDED.created_at
                         """)
                         
                         conn.execute(comment_query, {
@@ -263,32 +309,52 @@ class DatabaseManager:
             return False
     
     def get_stored_hot_content(self, keyword: str = None) -> Dict[str, Any]:
-        """저장된 핫한 콘텐츠 조회"""
+        """저장된 핫한 콘텐츠 조회 (중복 제거)"""
         try:
             with self.engine.connect() as conn:
-                # 영상 데이터 조회
-                video_query = "SELECT * FROM hot_videos"
-                params = {}
-                
+                # 영상 데이터 조회 (video_id 기준으로 중복 제거, 최고 hot_score 우선)
                 if keyword:
-                    video_query += " WHERE keyword = :keyword"
-                    params['keyword'] = keyword
-                
-                video_query += " ORDER BY hot_score DESC"
+                    video_query = """
+                        SELECT DISTINCT ON (video_id) *
+                        FROM hot_videos 
+                        WHERE keyword = :keyword
+                        ORDER BY video_id, hot_score DESC
+                    """
+                    params = {'keyword': keyword}
+                else:
+                    video_query = """
+                        SELECT DISTINCT ON (video_id) *
+                        FROM hot_videos 
+                        ORDER BY video_id, hot_score DESC
+                    """
+                    params = {}
                 
                 videos_result = conn.execute(text(video_query), params)
-                videos = [dict(row._mapping) for row in videos_result]
+                videos_raw = [dict(row._mapping) for row in videos_result]
                 
-                # 댓글 데이터 조회  
-                comment_query = "SELECT * FROM hot_comments"
+                # hot_score 순으로 재정렬
+                videos = sorted(videos_raw, key=lambda x: x['hot_score'], reverse=True)
                 
+                # 댓글 데이터 조회 (comment_id 기준으로 중복 제거, 최고 hot_score 우선)
                 if keyword:
-                    comment_query += " WHERE keyword = :keyword"
-                
-                comment_query += " ORDER BY hot_score DESC"
+                    comment_query = """
+                        SELECT DISTINCT ON (comment_id) *
+                        FROM hot_comments 
+                        WHERE keyword = :keyword
+                        ORDER BY comment_id, hot_score DESC
+                    """
+                else:
+                    comment_query = """
+                        SELECT DISTINCT ON (comment_id) *
+                        FROM hot_comments 
+                        ORDER BY comment_id, hot_score DESC
+                    """
                 
                 comments_result = conn.execute(text(comment_query), params)
-                comments = [dict(row._mapping) for row in comments_result]
+                comments_raw = [dict(row._mapping) for row in comments_result]
+                
+                # hot_score 순으로 재정렬
+                comments = sorted(comments_raw, key=lambda x: x['hot_score'], reverse=True)
                 
                 return {
                     'hot_videos': videos,
@@ -415,7 +481,7 @@ class DatabaseManager:
                 return df
                 
         except Exception as e:
-            print(f"❌ 게시글 조회 실패: {e}")
+            print(f"게시글 조회 실패: {e}")
             return pd.DataFrame()
     
     # def get_sentiment_trends(self, keyword: str, days: int = 7) -> pd.DataFrame:
@@ -447,11 +513,11 @@ class DatabaseManager:
                     '''))
                     # 트랜잭션은 with 블록 종료 시 자동 커밋됨
                 
-                print(f"✅ {days}일 이전 데이터 정리 완료")
+                print(f"{days}일 이전 데이터 정리 완료")
                 return True
                 
         except Exception as e:
-            print(f"❌ 데이터 정리 실패: {e}")
+            print(f"데이터 정리 실패: {e}")
             return False
     
     def get_database_stats(self) -> Dict[str, Any]:
@@ -483,7 +549,7 @@ class DatabaseManager:
                 }
                 
         except Exception as e:
-            print(f"❌ 통계 조회 실패: {e}")
+            print(f"통계 조회 실패: {e}")
             return {}
 
  

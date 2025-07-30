@@ -18,7 +18,7 @@ class YouTubeCollector:
         
         if not self.api_key:
             self.youtube = None
-            print("⚠️ YouTube API 키를 사용할 수 없습니다. 데이터 수집 실패")
+            print("YouTube API 키를 사용할 수 없습니다. 데이터 수집 실패")
         else:
             try:
                 self.youtube = build('youtube', 'v3', developerKey=self.api_key)
@@ -39,8 +39,8 @@ class YouTubeCollector:
             핫한 영상들과 핫한 댓글들의 딕셔너리
         """
         if not self.youtube:
-            print(f"⚠️ YouTube API를 사용할 수 없어 '{keyword}' 키워드의 최신 데이터를 수집하지 못했습니다.")
-            print("📚 기존 데이터베이스의 데이터를 사용합니다.")
+            print(f"YouTube API를 사용할 수 없어 '{keyword}' 키워드의 최신 데이터를 수집하지 못했습니다.")
+            print("기존 데이터베이스의 데이터를 사용합니다.")
             return {
                 'keyword': keyword,
                 'hot_videos': [],
@@ -147,12 +147,12 @@ class YouTubeCollector:
                 'total_comments_analyzed': len(hot_comments)
             }
             
-            print(f"🔥 핫한 영상 {len(result['hot_videos'])}개, 핫한 댓글 {len(result['hot_comments'])}개 발견!")
+            print(f"핫한 영상 {len(result['hot_videos'])}개, 핫한 댓글 {len(result['hot_comments'])}개 발견!")
             return result
             
         except HttpError as e:
-            print(f"⚠️ YouTube API 오류: {e}")
-            print("📚 기존 데이터베이스의 데이터를 사용합니다.")
+            print(f"YouTube API 오류: {e}")
+            print("기존 데이터베이스의 데이터를 사용합니다.")
             return {
                 'keyword': keyword,
                 'hot_videos': [],
@@ -163,8 +163,8 @@ class YouTubeCollector:
                 'message': f'YouTube API 오류: {e}'
             }
         except Exception as e:
-            print(f"⚠️ 예상치 못한 오류: {e}")
-            print("📚 기존 데이터베이스의 데이터를 사용합니다.")
+            print(f"예상치 못한 오류: {e}")
+            print("기존 데이터베이스의 데이터를 사용합니다.")
             return {
                 'keyword': keyword,
                 'hot_videos': [],
@@ -358,7 +358,7 @@ class YouTubeCollector:
             비디오 통계 데이터
         """
         if not self.youtube:
-            print("⚠️ YouTube API를 사용할 수 없어 비디오 통계를 가져올 수 없습니다.")
+            print("YouTube API를 사용할 수 없어 비디오 통계를 가져올 수 없습니다.")
             return {
                 'status': 'api_unavailable',
                 'message': 'YouTube API 사용 불가능'

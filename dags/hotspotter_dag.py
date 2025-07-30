@@ -22,9 +22,9 @@ sys.path.append(project_root)
 dotenv_path = os.path.join(project_root, '.env')
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path)
-    print(f"✅ .env 파일 로드 성공: {dotenv_path}")
+    print(f".env 파일 로드 성공: {dotenv_path}")
 else:
-    print(f"⚠️ .env 파일 없음: {dotenv_path}")
+    print(f".env 파일 없음: {dotenv_path}")
 
 print(f"DAG 로딩: 프로젝트 루트 = {project_root}")  # 디버깅용
 
@@ -45,7 +45,7 @@ default_args = {
     'email_on_retry': False,
     'retries': 3,
     'retry_delay': timedelta(minutes=5),
-    'catchup': True,  # 과거 실행 건너뛰기
+    'catchup': False,  # 과거 실행 건너뛰기
 }
 
 # DAG 정의
@@ -54,13 +54,13 @@ dag = DAG(
     default_args=default_args,
     description='YouTube 핫한 콘텐츠 자동 수집 파이프라인',
     schedule_interval=timedelta(hours=COLLECTION_SETTINGS.get("collection_interval_hours")),  # 1시간마다 실행
-    max_active_runs=1,  # 동시 실행 방지
+    max_active_runs=2,  
     tags=['youtube', 'hotspotter', 'data-collection'],
 )
 
 def collect_keyword_data(keyword: str, **context):
     """특정 키워드의 핫한 콘텐츠 수집"""
-    print(f"🔍 키워드 '{keyword}' 데이터 수집 시작...")
+    print(f"키워드 '{keyword}' 데이터 수집 시작...")
     
     try:
         # YouTube 수집기 초기화
@@ -69,7 +69,7 @@ def collect_keyword_data(keyword: str, **context):
         
         # 키워드별 설정 가져오기
         keyword_settings = KEYWORD_SPECIFIC_SETTINGS.get(keyword, {})
-        max_videos = keyword_settings.get("max_videos", COLLECTION_SETTINGS["max_videos_per_keyword"])
+        max_videos = keyword_settings.get("max_videos", COLLECTION_SETTINGS["max_videos"])
         
         # 핫한 콘텐츠 수집
         hot_content = collector.find_hot_content(keyword, max_videos)
@@ -90,7 +90,7 @@ def collect_keyword_data(keyword: str, **context):
             
             # 예상치 못한 오류
             else:
-                raise Exception(f"=수집 중 예상치 못한 오류: {keyword}\n상세: {error_msg}")
+                raise Exception(f"수집 중 예상치 못한 오류: {keyword}\n상세: {error_msg}")
         
         # 수집된 데이터가 없는 경우 경고 처리
         video_count = len(hot_content.get('hot_videos', []))
@@ -98,7 +98,7 @@ def collect_keyword_data(keyword: str, **context):
         
         if video_count == 0 and comment_count == 0:
             print(f"'{keyword}' 수집 결과 없음")
-            print(f"💡 가능한 원인: 1) 핫점수 기준(45점) 미달, 2) 최근 14일 내 콘텐츠 부족, 3) API 제한")
+            print("가능한 원인: 1) 핫점수 기준(45점) 미달, 2) 최근 14일 내 콘텐츠 부족, 3) API 제한")
             # 데이터가 없어도 실패로 처리하지 않고 경고만 출력
         
         # 기존 데이터 삭제 (최신 데이터로 교체)
@@ -108,7 +108,7 @@ def collect_keyword_data(keyword: str, **context):
         success = db_manager.save_hot_content_results(keyword, hot_content)
         
         if success:
-            print(f"✅ '{keyword}' 수집 완료: {video_count}개 영상, {comment_count}개 댓글")
+            print(f"'{keyword}' 수집 완료: {video_count}개 영상, {comment_count}개 댓글")
             
             # XCom에 결과 저장 (다음 태스크에서 사용 가능)
             return {
@@ -121,12 +121,12 @@ def collect_keyword_data(keyword: str, **context):
             raise Exception(f"데이터베이스 저장 실패: {keyword}")
             
     except Exception as e:
-        print(f"❌ '{keyword}' 수집 중 오류: {str(e)}")
+        print(f"'{keyword}' 수집 중 오류: {str(e)}")
         raise
 
 def cleanup_old_data(**context):
     """오래된 데이터 정리"""
-    print("🧹 오래된 데이터 정리 시작...")
+    print("오래된 데이터 정리 시작...")
     
     try:
         db_manager = DatabaseManager()
@@ -137,18 +137,18 @@ def cleanup_old_data(**context):
         success = db_manager.cleanup_old_data(cutoff_date)
         
         if success:
-            print(f"✅ {COLLECTION_SETTINGS['data_retention_days']}일 이전 데이터 정리 완료")
+            print(f"{COLLECTION_SETTINGS['data_retention_days']}일 이전 데이터 정리 완료")
             return {'status': 'success', 'cutoff_date': cutoff_date.isoformat()}
         else:
             raise Exception("데이터 정리 실패")
             
     except Exception as e:
-        print(f"❌ 데이터 정리 중 오류: {str(e)}")
+        print(f"데이터 정리 중 오류: {str(e)}")
         raise
 
 def generate_collection_report(**context):
     """수집 결과 리포트 생성"""
-    print("📊 수집 결과 리포트 생성...")
+    print("수집 결과 리포트 생성...")
     
     try:
         db_manager = DatabaseManager()
@@ -161,13 +161,13 @@ def generate_collection_report(**context):
         # 키워드별 통계
         keywords_stats = db_manager.get_keywords_stats()
         
-        print("📈 수집 리포트:")
+        print("수집 리포트:")
         print(f"  전체 영상: {total_videos}개")
         print(f"  전체 댓글: {total_comments}개")
         print(f"  마지막 수집: {last_collection}")
         
         for stat in keywords_stats:
-            print(f"  📊 {stat['keyword']}: {stat['video_count']}개 영상, "
+            print(f"  {stat['keyword']}: {stat['video_count']}개 영상, "
                   f"평균 핫점수 {stat['avg_hot_score']:.1f}")
         
         return {
@@ -177,7 +177,7 @@ def generate_collection_report(**context):
         }
         
     except Exception as e:
-        print(f"❌ 리포트 생성 중 오류: {str(e)}")
+        print(f"리포트 생성 중 오류: {str(e)}")
         raise
 
 # Task 정의

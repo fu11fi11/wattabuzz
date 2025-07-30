@@ -193,7 +193,7 @@ schedule_interval='0 9 * * *'
 `config/keywords.py`에서 보관 기간 수정:
 ```python
 COLLECTION_SETTINGS = {
-    "data_retention_days": 14,  # 14일로 변경
+    "data_retention_days": 7,  
     # ...
 }
 ```
@@ -205,20 +205,8 @@ COLLECTION_SETTINGS = {
 - **hot_comments**: 핫한 댓글 정보 (내용, 작성자, 좋아요, 핫점수)
 
 ### 지원 데이터베이스
-- **PostgreSQL**: 프로덕션 환경 권장
-- **SQLite**: 개발/테스트 환경 (자동 fallback)
+- **PostgreSQL**: 프로덕션 환경
 
-## 🚨 문제 해결
-
-### 일반적인 문제
-1. **DAG가 보이지 않음**: `python dags/hotspotter_dag.py`로 문법 확인
-2. **수집 실패**: Airflow 로그에서 YouTube API 키 및 네트워크 상태 확인
-3. **데이터베이스 연결 오류**: PostgreSQL 서비스 상태 및 연결 정보 확인
-
-### 로그 위치
-- **Airflow 로그**: Airflow 웹 UI → DAG → Task → Logs
-- **Streamlit 로그**: 터미널 출력
-- **시스템 로그**: `/tmp/airflow.log` (설정에 따라 다름)
 
 ## 📈 로드맵
 
@@ -240,15 +228,6 @@ COLLECTION_SETTINGS = {
 - [ ] 모바일 앱 개발
 - [ ] API 서비스 상용화
 
-## 🤝 기여 방법
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-
 
 ## 📞 문의 및 지원
 
@@ -258,4 +237,4 @@ COLLECTION_SETTINGS = {
 
 ---
 
-**🌊 WattaBuzz - YouTube 트렌드를 앞서가는 인텔리전트 모니터링 시스템** 🌊 
+**🌊 WattaBuzz - 덕질을 조금 더 편하게** 🌊 
